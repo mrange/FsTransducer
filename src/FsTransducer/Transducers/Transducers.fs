@@ -16,12 +16,14 @@
 
 namespace  Transducers
 
-#if XXX
+#if !XXX
 type [<Struct>] Finalizer =
   | Action      of a : (unit -> unit)
   | Disposable  of d : System.IDisposable
 
 module Details =
+  let inline adapt f = FSharp.Core.OptimizedClosures.FSharpFunc<_, _, _>.Adapt f
+
   let dispose d = 
     try
       (d : System.IDisposable).Dispose ()
@@ -77,14 +79,18 @@ module Transducer =
 
   let inline filtering f =
     { new Transducer<_, _> with
-        member x.BuildUp ctx folder = fun s v -> if f v then folder s v else s
+        member x.BuildUp ctx folder = 
+          let folder = adapt folder
+          fun s v -> if f v then folder.Invoke (s, v) else s
     }
 
   let inline filter f t = compose t (filtering f)
 
   let inline mapping m =
     { new Transducer<_, _> with
-        member x.BuildUp ctx folder = fun s v -> folder s (m v)
+        member x.BuildUp ctx folder = 
+          let folder = adapt folder
+          fun s v -> folder.Invoke (s, (m v))
     }
 
   let inline map m t = compose t (mapping m)
@@ -92,11 +98,12 @@ module Transducer =
   let inline taking n =
     { new Transducer<_, _> with
         member x.BuildUp ctx folder = 
+          let folder      = adapt folder
           let mutable rem = n
           fun s v -> 
             if rem > 0 then
               rem <- rem - 1
-              folder s v
+              folder.Invoke (s, v)
             else
               ctx.Cancel ()
               s
@@ -107,13 +114,14 @@ module Transducer =
   let inline skipping n =
     { new Transducer<_, _> with
         member x.BuildUp ctx folder = 
+          let folder      = adapt folder
           let mutable rem = n
           fun s v -> 
             if rem > 0 then
               rem <- rem - 1
               s
             else
-              folder s v
+              folder.Invoke (s, v)
     }
 
   let inline skip n t = compose t (skipping n)
@@ -216,7 +224,13 @@ module List =
 
 type Transducer<'S, 'TIn, 'TOut> = ('S -> 'TOut -> 'S) -> ('S -> 'TIn -> 'S)
 
+module Details =
+  let inline adapt f = FSharp.Core.OptimizedClosures.FSharpFunc<_, _, _>.Adapt f
+
+open Details
+
 module Transducer =
+ 
   let inline compose (l : Transducer<_, _, _>) (r : Transducer<_, _, _>) : Transducer<_, _, _> = 
     fun folder -> l (r folder)
 
@@ -225,22 +239,27 @@ module Transducer =
     fun folder -> folder
 
   let inline filtering f : Transducer<_, _, _> =
-    fun folder -> fun s v -> if f v then folder s v else s
+    fun folder -> 
+      let folder = adapt folder
+      fun s v -> if f v then folder.Invoke (s, v) else s
 
   let inline filter f t = compose t (filtering f)
 
   let inline mapping m : Transducer<_, _, _> =
-    fun folder -> fun s v -> folder s (m v)
+    fun folder -> 
+      let folder = adapt folder
+      fun s v -> folder.Invoke (s, (m v))
 
   let inline map m t = compose t (mapping m)
 
   let inline taking n : Transducer<_, _, _> =
     fun folder -> 
+      let folder      = adapt folder
       let mutable rem = n
       fun s v -> 
         if rem > 0 then
           rem <- rem - 1
-          folder s v
+          folder.Invoke (s, v)
         else
           s
 
@@ -248,13 +267,14 @@ module Transducer =
 
   let inline skipping n : Transducer<_, _, _> =
     fun folder -> 
+      let folder      = adapt folder
       let mutable rem = n
       fun s v -> 
         if rem > 0 then
           rem <- rem - 1
           s
         else
-          folder s v
+          folder.Invoke (s, v)
 
   let inline skip n t = compose t (skipping n)
 
