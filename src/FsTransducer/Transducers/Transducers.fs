@@ -16,13 +16,15 @@
 
 namespace  Transducers
 
+open FSharp.Core.OptimizedClosures
+
 #if !XXX
 type [<Struct>] Finalizer =
   | Action      of a : (unit -> unit)
   | Disposable  of d : System.IDisposable
 
 module Details =
-  let inline adapt f = FSharp.Core.OptimizedClosures.FSharpFunc<_, _, _>.Adapt f
+  let inline adapt f = FSharpFunc<_, _, _>.Adapt f
 
   let dispose d = 
     try
@@ -126,52 +128,71 @@ module Transducer =
 
   let inline skip n t = compose t (skipping n)
 
-module Range =
-  let transduce (t : Transducer<_, _>) (f : 'S -> 'T -> 'S) (z : 'S) (b : int) (e : int)  : 'S =
-    use ctx             = new Context ()
-    let tf              = t.BuildUp ctx f
-    let rec loop acc i  =
+module Loops =
+  module Range =
+    let rec loop (ctx : Context) (tf : FSharpFunc<_, _, _>) e acc i =
       if i <= e && not ctx.IsCancelled then
-        loop (tf acc i) (i + 1)
+        loop ctx tf e (tf.Invoke(acc, i)) (i + 1)
       else 
         acc
-    loop z b
+
+  module Array = 
+    let rec loop (ctx : Context) (tf : FSharpFunc<_, _, _>) (s : _ []) acc i  =
+      if i < s.Length && not ctx.IsCancelled then
+        loop ctx tf s (tf.Invoke (acc, s.[i])) (i + 1)
+      else 
+        acc
+
+  module Seq = 
+    let rec loop (ctx : Context) (tf : FSharpFunc<_, _, _>) (e : System.Collections.Generic.IEnumerator<_>) acc  =
+      if e.MoveNext () && not ctx.IsCancelled then
+        loop ctx tf e (tf.Invoke (acc, e.Current))
+      else 
+        acc
+
+  module List =
+    let rec loop (ctx : Context) (tf : FSharpFunc<_, _, _>) acc ls =
+      match ls with
+      | h::t when not ctx.IsCancelled -> 
+        loop ctx tf (tf.Invoke (acc, h)) t 
+      | _ ->
+        acc
+
+module Range =
+  let inline transduce (t : Transducer<_, _>) (f : 'S -> 'T -> 'S) (z : 'S) (b : int) (e : int)  : 'S =
+    use ctx             = new Context ()
+    let tf              = t.BuildUp ctx f
+    let tf              = adapt tf
+    Loops.Range.loop ctx tf e z b
 
 module Array =
-  let transduce (t : Transducer<_, _>) (f : 'S -> 'T -> 'S) (z : 'S) (s : 'U []) : 'S =
+  let inline transduce (t : Transducer<_, _>) (f : 'S -> 'T -> 'S) (z : 'S) (s : 'U []) : 'S =
     use ctx             = new Context ()
     let tf              = t.BuildUp ctx f
-    let rec loop acc i  =
-      if i < s.Length && not ctx.IsCancelled then
-        loop (tf acc s.[i]) (i + 1)
-      else 
-        acc
-    loop z 0
+    let tf              = adapt tf
+    Loops.Array.loop ctx tf s z 0
 
-  let sequence (t : Transducer<_, _>) (s : 'T []) : 'U [] =
+  let inline sequence (t : Transducer<_, _>) (s : 'T []) : 'U [] =
     let ra      = ResizeArray s.Length
     let f () v  = ra.Add v
     transduce t f () s
     ra.ToArray ()
 
 module Seq =
-  let transduce (t : Transducer<_, _>) (f : 'S -> 'T -> 'S) (z : 'S) (s : 'U seq) : 'S =
+  let inline transduce (t : Transducer<_, _>) (f : 'S -> 'T -> 'S) (z : 'S) (s : 'U seq) : 'S =
     use ctx           = new Context ()
     let tf            = t.BuildUp ctx f
+    let tf            = adapt tf
     use e             = s.GetEnumerator ()
-    let rec loop acc  =
-      if e.MoveNext () && not ctx.IsCancelled then
-        loop (tf acc e.Current)
-      else 
-        acc
-    loop z
+    Loops.Seq.loop ctx tf e z
 
-  let sequence (t : Transducer<_, _>) (s : seq<'T>) : seq<'U> =
+  let inline sequence (t : Transducer<_, _>) (s : seq<'T>) : seq<'U> =
     let gen () : System.Collections.Generic.IEnumerator<'U> = 
       let mutable c = None
       let f _ v     = c <- Some v
       let ctx       = new Context ()
       let tf        = t.BuildUp ctx f
+      let tf        = adapt tf
       let e         = s.GetEnumerator ()
       { new System.Collections.Generic.IEnumerator<'U> with
           member x.Current      = c.Value
@@ -182,7 +203,7 @@ module Seq =
             c <- None
             let rec loop () =
               if e.MoveNext () then
-                tf () e.Current
+                tf.Invoke ((), e.Current)
                 match c with
                 | Some v  -> true
                 | None    -> loop ()
@@ -205,18 +226,13 @@ module Seq =
     }
 
 module List =
-  let transduce (t : Transducer<_, _>) (f : 'S -> 'T -> 'S) (z : 'S) (s : 'U list) : 'S =
+  let inline transduce (t : Transducer<_, _>) (f : 'S -> 'T -> 'S) (z : 'S) (s : 'U list) : 'S =
     use ctx             = new Context ()
     let tf              = t.BuildUp ctx f
-    let rec loop acc ls =
-      match ls with
-      | h::t when not ctx.IsCancelled -> 
-        loop (tf acc h) t
-      | _ ->
-        acc
-    loop z s
+    let tf              = adapt tf
+    Loops.List.loop ctx tf z s
 
-  let sequence (t : Transducer<_, _>) (s : 'T list) : 'U list =
+  let inline sequence (t : Transducer<_, _>) (s : 'T list) : 'U list =
     let f ls v  = v::ls
     let rls     = transduce t f [] s
     List.rev rls
@@ -282,16 +298,19 @@ module Range =
   let inline transduce (t : Transducer<_, _, _>) (f : 'S -> 'T -> 'S) (z : 'S) (b : int) (e : int)  : 'S =
     let mutable acc = z
     let tf          = t f
+    let tf          = adapt tf
+//    System.Diagnostics.Debugger.Break ()
     for i = b to e do
-      acc <- tf acc i
+      acc <- tf.Invoke (acc, i)
     acc
 
 module Array =
   let inline transduce (t : Transducer<_, _, _>) (f : 'S -> 'T -> 'S) (z : 'S) (s : 'U []) : 'S =
     let mutable acc = z
     let tf          = t f
+    let tf          = adapt tf
     for i = 0 to (s.Length - 1) do
-      acc <- tf acc s.[i]
+      acc <- tf.Invoke (acc, s.[i])
     acc
 
   let inline sequence (t : Transducer<_, _, _>) (s : 'T []) : 'U [] =
