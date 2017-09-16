@@ -8,6 +8,9 @@ EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Transducers.Test", "Transducers.Test\Transducers.Test.fsproj", "{049E20F2-ACD1-4A2A-A747-C69B764D7613}"
 EndProject
 Global
+	GlobalSection(Performance) = preSolution
+		HasPerformanceSessions = true
+	EndGlobalSection
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
 		Debug|x64 = Debug|x64

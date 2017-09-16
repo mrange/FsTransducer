@@ -1,4 +1,20 @@
-﻿module Transducers.PerformanceTests
+﻿// ----------------------------------------------------------------------------------------------
+// Copyright 2017 Mårten Rånge
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// ----------------------------------------------------------------------------------------------
+
+module Transducers.PerformanceTests
 let now =
   let sw = System.Diagnostics.Stopwatch ()
   sw.Start ()
@@ -43,13 +59,24 @@ let imperativeTest n =
 open System.Linq
 
 let linqTest n =
-  Enumerable.Range(0, n + 1).Select(int64).Where(fun v -> v % 2L = 0L).Select((+) 1L).Sum()
+  FsLinq.range      0 n
+  |> FsLinq.map     int64
+  |> FsLinq.filter  (fun v -> v % 2L = 0L)
+  |> FsLinq.map     ((+) 1L)
+  |> FsLinq.sum
+
+let seqTest n =
+  Array.init      (n + 1) id
+  |> Array.map    int64
+  |> Array.filter (fun v -> v % 2L = 0L)
+  |> Array.map    ((+) 1L)
+  |> Array.sum
 
 let trivialTest n =
-  TrivialStream.range 0 1 n
-  |> TrivialStream.map     int64
-  |> TrivialStream.filter  (fun v -> v % 2L = 0L)
-  |> TrivialStream.map     ((+) 1L)
+  TrivialStream.range     0 1 n
+  |> TrivialStream.map    int64
+  |> TrivialStream.filter (fun v -> v % 2L = 0L)
+  |> TrivialStream.map    ((+) 1L)
   |> TrivialStream.sum
 
 let transducer =

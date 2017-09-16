@@ -1,5 +1,22 @@
-﻿namespace  Transducers
+﻿// ----------------------------------------------------------------------------------------------
+// Copyright 2017 Mårten Rånge
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// ----------------------------------------------------------------------------------------------
 
+namespace  Transducers
+
+#if XXX
 type [<Struct>] Finalizer =
   | Action      of a : (unit -> unit)
   | Disposable  of d : System.IDisposable
@@ -195,3 +212,72 @@ module List =
     let f ls v  = v::ls
     let rls     = transduce t f [] s
     List.rev rls
+#else
+
+type Transducer<'S, 'TIn, 'TOut> = ('S -> 'TOut -> 'S) -> ('S -> 'TIn -> 'S)
+
+module Transducer =
+  let inline compose (l : Transducer<_, _, _>) (r : Transducer<_, _, _>) : Transducer<_, _, _> = 
+    fun folder -> l (r folder)
+
+  [<GeneralizableValue>]
+  let id<'S, 'T> : Transducer<'S, 'T, 'T> = 
+    fun folder -> folder
+
+  let inline filtering f : Transducer<_, _, _> =
+    fun folder -> fun s v -> if f v then folder s v else s
+
+  let inline filter f t = compose t (filtering f)
+
+  let inline mapping m : Transducer<_, _, _> =
+    fun folder -> fun s v -> folder s (m v)
+
+  let inline map m t = compose t (mapping m)
+
+  let inline taking n : Transducer<_, _, _> =
+    fun folder -> 
+      let mutable rem = n
+      fun s v -> 
+        if rem > 0 then
+          rem <- rem - 1
+          folder s v
+        else
+          s
+
+  let inline take n t = compose t (taking n)
+
+  let inline skipping n : Transducer<_, _, _> =
+    fun folder -> 
+      let mutable rem = n
+      fun s v -> 
+        if rem > 0 then
+          rem <- rem - 1
+          s
+        else
+          folder s v
+
+  let inline skip n t = compose t (skipping n)
+
+module Range =
+  let inline transduce (t : Transducer<_, _, _>) (f : 'S -> 'T -> 'S) (z : 'S) (b : int) (e : int)  : 'S =
+    let mutable acc = z
+    let tf          = t f
+    for i = b to e do
+      acc <- tf acc i
+    acc
+
+module Array =
+  let inline transduce (t : Transducer<_, _, _>) (f : 'S -> 'T -> 'S) (z : 'S) (s : 'U []) : 'S =
+    let mutable acc = z
+    let tf          = t f
+    for i = 0 to (s.Length - 1) do
+      acc <- tf acc s.[i]
+    acc
+
+  let inline sequence (t : Transducer<_, _, _>) (s : 'T []) : 'U [] =
+    let ra      = ResizeArray s.Length
+    let f () v  = ra.Add v
+    transduce t f () s
+    ra.ToArray ()
+
+#endif
