@@ -241,17 +241,16 @@ module List =
 type Transducer<'S, 'TIn, 'TOut> = ('S -> 'S) -> ('S -> 'TOut -> 'S) -> ('S -> 'S)*('S -> 'TIn -> 'S)
 
 module Details =
-  let inline adapt f = FSharp.Core.OptimizedClosures.FSharpFunc<_, _, _>.Adapt f
+  let inline adapt f    = FSharp.Core.OptimizedClosures.FSharpFunc<_, _, _>.Adapt f
 
-  let inline pair f s= f, s
+  let inline dbreak ()  = System.Diagnostics.Debugger.Break ()
+  let inline pair f s   = f, s
 
   let inline transduceRest (ra : ResizeArray<_>) s (folder : OptimizedClosures.FSharpFunc<_, _, _>) completer =
     let mutable acc = s
     for i = 0 to (ra.Count - 1) do
       acc <- folder.Invoke (acc, ra.[i])
     completer acc
-
-    completer ()
 
 open Details
 
@@ -315,15 +314,15 @@ module Transducer =
         let comp  = System.Comparison<_> (fun l r -> (by l).CompareTo (by r))
         ra.Sort comp
         transduceRest ra s folder completer
-      pair c <| fun s v -> ra.Add v
+      pair c <| fun s v -> ra.Add v; s
 
+  let inline sortBy by t = compose t (sortingBy by)
 
 module Range =
   let inline transduce (t : Transducer<_, _, _>) (f : 'S -> 'T -> 'S) (z : 'S) (b : int) (e : int)  : 'S =
     let mutable acc     = z
     let tc, tf          = t id f
     let tf              = adapt tf
-//    System.Diagnostics.Debugger.Break ()
     for i = b to e do
       acc <- tf.Invoke (acc, i)
     tc acc
@@ -338,9 +337,8 @@ module Array =
     tc acc
 
   let inline sequence (t : Transducer<_, _, _>) (s : 'T []) : 'U [] =
-    let ra      = ResizeArray s.Length
-    let f () v  = ra.Add v
-    transduce t f () s
-    ra.ToArray ()
+    let f (ra : ResizeArray<_>) v   = ra.Add v; ra
+    let ra                          = ResizeArray s.Length
+    (transduce t f ra s).ToArray ()
 
 #endif
