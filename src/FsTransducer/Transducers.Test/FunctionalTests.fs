@@ -29,14 +29,14 @@ type Properties() =
     static member ``filtering`` (v : int) (vs : int []) =
       let r = abs v % 10 + 1
       let f = fun i -> i % r = 0
-      let e = vs |> FsLinq.filter f |> FsLinq.toArray
-      let a = Transducer.filtering f |> apply vs
+      let e = vs |> FsLinq.filter f   |> FsLinq.toArray
+      let a = Transducer.filtering f  |> apply vs
       e = a
 
     static member ``mapping`` (v : int) (vs : int []) =
       let m = fun i -> i + v |> int64
-      let e = vs |> FsLinq.map m |> FsLinq.toArray
-      let a = Transducer.mapping m |> apply vs
+      let e = vs |> FsLinq.map m    |> FsLinq.toArray
+      let a = Transducer.mapping m  |> apply vs
       e = a
 
     static member ``taking`` (v : int) (vs : int []) =
@@ -47,8 +47,14 @@ type Properties() =
 
     static member ``skipping`` (v : int) (vs : int []) =
       let n = abs v % (2*vs.Length + 1)
-      let e = vs |> FsLinq.skip n |> FsLinq.toArray
+      let e = vs |> FsLinq.skip n   |> FsLinq.toArray
       let a = Transducer.skipping n |> apply vs
+      e = a
+
+    static member ``sorting`` (vs : int []) =
+      let by  = string
+      let e   = vs |> FsLinq.sortBy by  |> FsLinq.toArray
+      let a   = Transducer.sortingBy by |> apply vs
       e = a
 
     static member ``composing`` (v : int) (vs : int []) =

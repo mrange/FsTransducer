@@ -18,7 +18,7 @@ namespace  Transducers
 
 open FSharp.Core.OptimizedClosures
 
-#if !XXX
+#if XXX
 type [<Struct>] Finalizer =
   | Action      of a : (unit -> unit)
   | Disposable  of d : System.IDisposable
@@ -238,41 +238,54 @@ module List =
     List.rev rls
 #else
 
-type Transducer<'S, 'TIn, 'TOut> = ('S -> 'TOut -> 'S) -> ('S -> 'TIn -> 'S)
+type Transducer<'S, 'TIn, 'TOut> = ('S -> 'S) -> ('S -> 'TOut -> 'S) -> ('S -> 'S)*('S -> 'TIn -> 'S)
 
 module Details =
   let inline adapt f = FSharp.Core.OptimizedClosures.FSharpFunc<_, _, _>.Adapt f
 
+  let inline pair f s= f, s
+
+  let inline transduceRest (ra : ResizeArray<_>) s (folder : OptimizedClosures.FSharpFunc<_, _, _>) completer =
+    let mutable acc = s
+    for i = 0 to (ra.Count - 1) do
+      acc <- folder.Invoke (acc, ra.[i])
+    completer acc
+
+    completer ()
+
 open Details
 
 module Transducer =
+  open System
  
   let inline compose (l : Transducer<_, _, _>) (r : Transducer<_, _, _>) : Transducer<_, _, _> = 
-    fun folder -> l (r folder)
+    fun completer folder -> 
+      let c, f = r completer folder
+      l c f
 
   [<GeneralizableValue>]
   let id<'S, 'T> : Transducer<'S, 'T, 'T> = 
-    fun folder -> folder
+    fun completer folder -> pair completer folder
 
   let inline filtering f : Transducer<_, _, _> =
-    fun folder -> 
+    fun completer folder -> 
       let folder = adapt folder
-      fun s v -> if f v then folder.Invoke (s, v) else s
+      pair completer <| fun s v -> if f v then folder.Invoke (s, v) else s
 
   let inline filter f t = compose t (filtering f)
 
   let inline mapping m : Transducer<_, _, _> =
-    fun folder -> 
+    fun completer folder -> 
       let folder = adapt folder
-      fun s v -> folder.Invoke (s, (m v))
+      pair completer <| fun s v -> folder.Invoke (s, (m v))
 
   let inline map m t = compose t (mapping m)
 
   let inline taking n : Transducer<_, _, _> =
-    fun folder -> 
+    fun completer folder -> 
       let folder      = adapt folder
       let mutable rem = n
-      fun s v -> 
+      pair completer <| fun s v -> 
         if rem > 0 then
           rem <- rem - 1
           folder.Invoke (s, v)
@@ -282,10 +295,10 @@ module Transducer =
   let inline take n t = compose t (taking n)
 
   let inline skipping n : Transducer<_, _, _> =
-    fun folder -> 
+    fun completer folder -> 
       let folder      = adapt folder
       let mutable rem = n
-      fun s v -> 
+      pair completer <| fun s v -> 
         if rem > 0 then
           rem <- rem - 1
           s
@@ -294,24 +307,35 @@ module Transducer =
 
   let inline skip n t = compose t (skipping n)
 
+  let inline sortingBy (by : _ -> #IComparable) : Transducer<_, _, _> =
+    fun completer folder -> 
+      let folder  = adapt folder
+      let ra      = ResizeArray 16
+      let c s     =
+        let comp  = System.Comparison<_> (fun l r -> (by l).CompareTo (by r))
+        ra.Sort comp
+        transduceRest ra s folder completer
+      pair c <| fun s v -> ra.Add v
+
+
 module Range =
   let inline transduce (t : Transducer<_, _, _>) (f : 'S -> 'T -> 'S) (z : 'S) (b : int) (e : int)  : 'S =
-    let mutable acc = z
-    let tf          = t f
-    let tf          = adapt tf
+    let mutable acc     = z
+    let tc, tf          = t id f
+    let tf              = adapt tf
 //    System.Diagnostics.Debugger.Break ()
     for i = b to e do
       acc <- tf.Invoke (acc, i)
-    acc
+    tc acc
 
 module Array =
   let inline transduce (t : Transducer<_, _, _>) (f : 'S -> 'T -> 'S) (z : 'S) (s : 'U []) : 'S =
-    let mutable acc = z
-    let tf          = t f
-    let tf          = adapt tf
+    let mutable acc     = z
+    let tc, tf          = t id f
+    let tf              = adapt tf
     for i = 0 to (s.Length - 1) do
       acc <- tf.Invoke (acc, s.[i])
-    acc
+    tc acc
 
   let inline sequence (t : Transducer<_, _, _>) (s : 'T []) : 'U [] =
     let ra      = ResizeArray s.Length

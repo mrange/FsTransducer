@@ -27,5 +27,7 @@ let inline map     m s = Enumerable.Select   (s, Func<_, _> m)
 let inline take    n s = Enumerable.Take     (s, n)
 let inline skip    n s = Enumerable.Skip     (s, n)
 
+let inline sortBy  by s= Enumerable.OrderBy (s, Func<_, _> by)
+
 let inline toArray s   = Enumerable.ToArray  (s)
 let inline sum     s   = Enumerable.Sum (s : IEnumerable<int64>)

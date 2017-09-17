@@ -28,7 +28,10 @@ module Details =
     // This way to iterate seems to be faster in F#4 than a while loop
     let rec range s e r i = if i <= e then r i; range s e r (i + s)
 
+    let rec sort ra c r i = if i < c then r (ra : ResizeArray<_>).[i]; sort ra c r (i + 1)
+
 open Details
+open System
 
 // Sources
 
@@ -42,6 +45,14 @@ let inline filter (f : 'T -> bool) (s : Stream<'T>) : Stream<'T> =
 
 let inline map (m : 'T -> 'U) (s : Stream<'T>) : Stream<'U> =
   fun r -> s (fun v -> r (m v))
+
+let inline sortBy (by : 'T -> #IComparable<_>) (s : Stream<'T>) : Stream<'T> =
+  fun r -> 
+    let ra = ResizeArray 16
+    s (fun v -> ra.Add v)
+    let c = System.Comparison<_> (fun l r -> (by l).CompareTo (by r))
+    ra.Sort c
+    Loop.sort ra ra.Count r 0
 
 // Sinks
 
