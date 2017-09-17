@@ -38,7 +38,14 @@ module TransducerExpressionTest =
       |> Transducer.filter  <@ fun v -> v &&& 1L = 0L @>
       |> Transducer.map     <@ ((+) 1L) @>
     let e = Transducer.buildUp transducer <@ (+) @>
+    let f = FSharp.Linq.RuntimeHelpers.LeafExpressionConverter.EvaluateQuotation e :?> (int64 -> int -> int64)
     printfn "%A" e
+//    System.Diagnostics.Debugger.Break ()
+    let mutable acc = 0L
+    for i = 0 to 10 do
+      acc <- f acc i
+    printfn "%A" acc
+    printfn "%A" f
 
 [<EntryPoint>]
 let main argv = 

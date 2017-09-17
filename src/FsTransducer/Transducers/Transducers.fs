@@ -345,60 +345,68 @@ module Array =
 #endif
 
 module Expression =
+  open System
+
   open FSharp.Quotations
 
   type TransducerExpression =
     | Compose     of TransducerExpression*TransducerExpression// ('S -> 'TOut -> 'S) -> ('S -> 'TIn -> 'S)
-    | Filter      of Expr // 'TIn -> bool
-    | Map         of Expr // 'TIn -> 'TOut
-    | Fold        of Expr // 'S -> 'T -> 'S
+    | Filter      of Type*Expr // 'TIn -> bool
+    | Map         of Type*Type*Expr // 'TIn -> 'TOut
 
   type Transducer<'TIn, 'TOut> = Transducer of TransducerExpression
 
 
   module Transducer =
-    let inline compose (l : Transducer<'T, 'U>) (r : Transducer<'U, 'V>) : Transducer<'T, 'V> =
+    let compose (l : Transducer<'T, 'U>) (r : Transducer<'U, 'V>) : Transducer<'T, 'V> =
       let (Transducer le) = l
       let (Transducer re) = r
       Compose (le, re) |> Transducer
 
-    let inline filtering (f : Expr<'TIn -> bool>) : Transducer<'TIn, 'TIn> =
-      Filter f |> Transducer
+    let filtering (f : Expr<'TIn -> bool>) : Transducer<'TIn, 'TIn> =
+      Filter (typeof<'TIn>, f) |> Transducer
 
-    let inline filter f t = compose t (filtering f)
+    let filter f t = compose t (filtering f)
 
-    let inline mapping (m : Expr<'TIn -> 'TOut>) : Transducer<'TIn, 'TOut> =
-      Map m |> Transducer
+    let mapping (m : Expr<'TIn -> 'TOut>) : Transducer<'TIn, 'TOut> =
+      Map (typeof<'TIn>, typeof<'TOut> ,m) |> Transducer
 
-    let inline map m t = compose t (mapping m)
+    let map m t = compose t (mapping m)
 
-    let buildUp (t : Transducer<'U, 'T>) (f : Expr<'S -> 'T -> 'S>) =
-      let root = Fold f
-      let rec loop e =
+    let buildUp (t : Transducer<_, 'T>) (f : Expr<'S -> 'T -> 'S>) =
+      let (Transducer t) = t
+      let rec loop (st : Type) (tt : Type) (acc : Expr) (e : TransducerExpression) =
+        let sv = Var ("s", st)
         match e with
         | Compose (l, r) ->
-          let le = loop l
-          let re = loop r
-          <@@ 
-            fun folder -> 
-              (%%le : _ -> _ ) ((%%re : _ -> _) folder) 
-          @@>
-        | Filter f ->
-          <@@ 
-            fun folder ->
-              fun s v -> if (%%f : _ -> bool) v then folder s v else s
-          @@>
-        | Map m ->
-          <@@ 
-            fun folder ->
-              fun s v -> folder s ((%%m : _ -> _) v)
-          @@>
-        | Fold f ->
-          <@@ 
-            fun folder ->
-              fun s v -> folder s ((%%f : _ -> _ -> _) s v)
-          @@>
+          let re = loop st tt acc r
+          let le = loop st tt re l
+          le
+        | Filter (t, f) ->
+          let vv = Var ("v", t)
+          Expr.Lambda (
+            sv, 
+            Expr.Lambda (
+              vv,
+              Expr.IfThenElse (
+                Expr.Application(f, Expr.Var vv),
+                Expr.Application(
+                  Expr.Application(acc, Expr.Var sv),
+                  Expr.Var vv),
+                Expr.Var vv
+              )))
+        | Map (t, mt, m) ->
+          let vv = Var ("v", t)
+          Expr.Lambda (
+            sv, 
+            Expr.Lambda (
+              vv,
+              Expr.Application(
+                Expr.Application(acc, Expr.Var sv),
+                Expr.Application(m, Expr.Var vv)
+              )))
 
-      let expr = loop root
+      let expr = loop typeof<'S> typeof<'T> f.Raw t
+
       expr
 
