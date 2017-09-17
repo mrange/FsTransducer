@@ -71,5 +71,11 @@ type Properties() =
 open FsCheck
 
 let runTests () =
-  let config = { Config.Quick with MaxTest = 1000; MaxFail = 1000 }
+#if DEBUG
+  let count = 1000
+#else
+  let count = 100
+#endif
+
+  let config = { Config.Quick with MaxTest = count; MaxFail = count }
   Check.All<Properties> config

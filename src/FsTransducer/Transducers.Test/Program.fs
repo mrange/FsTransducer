@@ -1,4 +1,6 @@
-﻿// ----------------------------------------------------------------------------------------------
+﻿open Transducers
+
+// ----------------------------------------------------------------------------------------------
 // Copyright 2017 Mårten Rånge
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,24 +16,37 @@
 // limitations under the License.
 // ----------------------------------------------------------------------------------------------
 
-open Transducers
 
-let transducerTest () =
-  let transducer =
-    Transducer.mapping    int64
-    |> Transducer.filter  (fun v -> v &&& 1L = 0L)
-    |> Transducer.map     ((+) 1L)
+module TransducerTest =
+  open Transducers
 
-  let v = Range.transduce transducer (+) 0L 0 100
-  printfn "%A" v
+  let test () =
+    let transducer =
+      Transducer.mapping    int64
+      |> Transducer.filter  (fun v -> v &&& 1L = 0L)
+      |> Transducer.map     ((+) 1L)
 
+    let v = Range.transduce transducer (+) 0L 0 100
+    printfn "%A" v
+
+module TransducerExpressionTest =
+  open Transducers.Expression
+
+  let test () =
+    let transducer =
+      Transducer.mapping    <@ int64 @>
+      |> Transducer.filter  <@ fun v -> v &&& 1L = 0L @>
+      |> Transducer.map     <@ ((+) 1L) @>
+    let e = Transducer.buildUp transducer <@ (+) @>
+    printfn "%A" e
 
 [<EntryPoint>]
 let main argv = 
   try
     System.Environment.CurrentDirectory <- System.AppDomain.CurrentDomain.BaseDirectory
 
-    transducerTest ()
+    TransducerTest.test ()
+    TransducerExpressionTest.test ()
 
 #if !DEBUG
     PerformanceTests.test "perf.tsv"

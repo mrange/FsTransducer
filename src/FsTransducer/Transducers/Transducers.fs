@@ -14,7 +14,7 @@
 // limitations under the License.
 // ----------------------------------------------------------------------------------------------
 
-namespace  Transducers
+namespace Transducers
 
 open FSharp.Core.OptimizedClosures
 
@@ -24,7 +24,8 @@ type [<Struct>] Finalizer =
   | Disposable  of d : System.IDisposable
 
 module Details =
-  let inline adapt f = FSharpFunc<_, _, _>.Adapt f
+  let inline adapt  f   = FSharpFunc<_, _, _>.Adapt f
+  let inline dbreak ()  = System.Diagnostics.Debugger.Break ()
 
   let dispose d = 
     try
@@ -244,7 +245,7 @@ module Details =
   let inline adapt f    = FSharp.Core.OptimizedClosures.FSharpFunc<_, _, _>.Adapt f
 
   let inline dbreak ()  = System.Diagnostics.Debugger.Break ()
-  let inline pair f s   = f, s
+  let inline result c f = c, f
 
   let inline transduceRest (ra : ResizeArray<_>) s (folder : OptimizedClosures.FSharpFunc<_, _, _>) completer =
     let mutable acc = s
@@ -264,19 +265,19 @@ module Transducer =
 
   [<GeneralizableValue>]
   let id<'S, 'T> : Transducer<'S, 'T, 'T> = 
-    fun completer folder -> pair completer folder
+    fun completer folder -> result completer folder
 
   let inline filtering f : Transducer<_, _, _> =
     fun completer folder -> 
       let folder = adapt folder
-      pair completer <| fun s v -> if f v then folder.Invoke (s, v) else s
+      result completer <| fun s v -> if f v then folder.Invoke (s, v) else s
 
   let inline filter f t = compose t (filtering f)
 
   let inline mapping m : Transducer<_, _, _> =
     fun completer folder -> 
       let folder = adapt folder
-      pair completer <| fun s v -> folder.Invoke (s, (m v))
+      result completer <| fun s v -> folder.Invoke (s, (m v))
 
   let inline map m t = compose t (mapping m)
 
@@ -284,7 +285,7 @@ module Transducer =
     fun completer folder -> 
       let folder      = adapt folder
       let mutable rem = n
-      pair completer <| fun s v -> 
+      result completer <| fun s v -> 
         if rem > 0 then
           rem <- rem - 1
           folder.Invoke (s, v)
@@ -297,7 +298,7 @@ module Transducer =
     fun completer folder -> 
       let folder      = adapt folder
       let mutable rem = n
-      pair completer <| fun s v -> 
+      result completer <| fun s v -> 
         if rem > 0 then
           rem <- rem - 1
           s
@@ -314,7 +315,7 @@ module Transducer =
         let comp  = System.Comparison<_> (fun l r -> (by l).CompareTo (by r))
         ra.Sort comp
         transduceRest ra s folder completer
-      pair c <| fun s v -> ra.Add v; s
+      result c <| fun s v -> ra.Add v; s
 
   let inline sortBy by t = compose t (sortingBy by)
 
@@ -342,3 +343,62 @@ module Array =
     (transduce t f ra s).ToArray ()
 
 #endif
+
+module Expression =
+  open FSharp.Quotations
+
+  type TransducerExpression =
+    | Compose     of TransducerExpression*TransducerExpression// ('S -> 'TOut -> 'S) -> ('S -> 'TIn -> 'S)
+    | Filter      of Expr // 'TIn -> bool
+    | Map         of Expr // 'TIn -> 'TOut
+    | Fold        of Expr // 'S -> 'T -> 'S
+
+  type Transducer<'TIn, 'TOut> = Transducer of TransducerExpression
+
+
+  module Transducer =
+    let inline compose (l : Transducer<'T, 'U>) (r : Transducer<'U, 'V>) : Transducer<'T, 'V> =
+      let (Transducer le) = l
+      let (Transducer re) = r
+      Compose (le, re) |> Transducer
+
+    let inline filtering (f : Expr<'TIn -> bool>) : Transducer<'TIn, 'TIn> =
+      Filter f |> Transducer
+
+    let inline filter f t = compose t (filtering f)
+
+    let inline mapping (m : Expr<'TIn -> 'TOut>) : Transducer<'TIn, 'TOut> =
+      Map m |> Transducer
+
+    let inline map m t = compose t (mapping m)
+
+    let buildUp (t : Transducer<'U, 'T>) (f : Expr<'S -> 'T -> 'S>) =
+      let root = Fold f
+      let rec loop e =
+        match e with
+        | Compose (l, r) ->
+          let le = loop l
+          let re = loop r
+          <@@ 
+            fun folder -> 
+              (%%le : _ -> _ ) ((%%re : _ -> _) folder) 
+          @@>
+        | Filter f ->
+          <@@ 
+            fun folder ->
+              fun s v -> if (%%f : _ -> bool) v then folder s v else s
+          @@>
+        | Map m ->
+          <@@ 
+            fun folder ->
+              fun s v -> folder s ((%%m : _ -> _) v)
+          @@>
+        | Fold f ->
+          <@@ 
+            fun folder ->
+              fun s v -> folder s ((%%f : _ -> _ -> _) s v)
+          @@>
+
+      let expr = loop root
+      expr
+
