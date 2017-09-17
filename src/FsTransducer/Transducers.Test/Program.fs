@@ -19,7 +19,7 @@ open Transducers
 let transducerTest () =
   let transducer =
     Transducer.mapping    int64
-    |> Transducer.filter  (fun v -> v % 2L = 0L)
+    |> Transducer.filter  (fun v -> v &&& 1L = 0L)
     |> Transducer.map     ((+) 1L)
 
   let v = Range.transduce transducer (+) 0L 0 100

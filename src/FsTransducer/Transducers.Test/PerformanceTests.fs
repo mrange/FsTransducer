@@ -41,14 +41,14 @@ let time n a =
 let arrayTest n =
   Array.init (n + 1) id
   |> Array.map    int64
-  |> Array.filter (fun v -> v % 2L = 0L)
+  |> Array.filter (fun v -> v &&& 1L = 0L)
   |> Array.map    ((+) 1L)
   |> Array.sum
 
 let imperativeTest n =
   let rec loop s i =
     if i >= 0L then
-      if i % 2L = 0L then
+      if i &&& 1L = 0L then
         loop (s + i + 1L) (i - 1L)
       else
         loop s (i - 1L)
@@ -61,27 +61,27 @@ open System.Linq
 let linqTest n =
   FsLinq.range      0 n
   |> FsLinq.map     int64
-  |> FsLinq.filter  (fun v -> v % 2L = 0L)
+  |> FsLinq.filter  (fun v -> v &&& 1L = 0L)
   |> FsLinq.map     ((+) 1L)
   |> FsLinq.sum
 
 let seqTest n =
   Array.init      (n + 1) id
   |> Array.map    int64
-  |> Array.filter (fun v -> v % 2L = 0L)
+  |> Array.filter (fun v -> v &&& 1L = 0L)
   |> Array.map    ((+) 1L)
   |> Array.sum
 
 let trivialTest n =
   TrivialStream.range     0 1 n
   |> TrivialStream.map    int64
-  |> TrivialStream.filter (fun v -> v % 2L = 0L)
+  |> TrivialStream.filter (fun v -> v &&& 1L = 0L)
   |> TrivialStream.map    ((+) 1L)
   |> TrivialStream.sum
 
 let transducer =
   Transducer.mapping    int64
-  |> Transducer.filter  (fun v -> v % 2L = 0L)
+  |> Transducer.filter  (fun v -> v &&& 1L = 0L)
   |> Transducer.map     ((+) 1L)
 
 let transducerTest n =
