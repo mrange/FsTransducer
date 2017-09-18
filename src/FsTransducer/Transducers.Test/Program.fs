@@ -31,6 +31,8 @@ module TransducerTest =
 
 module TransducerExpressionTest =
   open Transducers.Expression
+  open OptimizedClosures
+  open FSharp.Linq.RuntimeHelpers.LeafExpressionConverter
 
   let test () =
     let transducer =
@@ -38,19 +40,46 @@ module TransducerExpressionTest =
       |> Transducer.filter  <@ fun v -> v &&& 1L = 0L @>
       |> Transducer.map     <@ ((+) 1L) @>
     let e = Transducer.buildUp transducer <@ (+) @>
-    let f = FSharp.Linq.RuntimeHelpers.LeafExpressionConverter.EvaluateQuotation e :?> (int64 -> int -> int64)
-    printfn "%A" e
+    let l = QuotationToExpression e
+    let f = EvaluateQuotation e :?> (int64 -> int -> int64)
+    printfn "%s" (l.ToString ())
 //    System.Diagnostics.Debugger.Break ()
+    let f = FSharpFunc<_, _, _>.Adapt f
     let mutable acc = 0L
     for i = 0 to 10 do
-      acc <- f acc i
+      acc <- f.Invoke (acc, i)
+      printfn "%A, %A" i acc
     printfn "%A" acc
-    printfn "%A" f
+
+open FSharp.Quotations
+let test () =
+  let rec loop expr =
+    match expr with
+    | Patterns.Application (Patterns.Lambda (v, f), e) -> 
+      (fun i -> Expr.Let (v, e, i)), f
+    | Patterns.Application (Patterns.Application (_, _) as f, e) -> 
+      let l0, f0 = loop f
+      let l1, f1 = loop (Expr.Application (f0, e))
+      (fun i -> l1 (l0 i) ), f1
+    | _ -> 
+      (fun i -> i), expr
+
+  let optimize expr =
+    let l, f = loop expr
+    let e    = l f
+    e
+
+  let e = <@ (fun x y -> x + y) 1 2 @>
+  printfn "%A" e
+  printfn "%A" (optimize e)
+  
 
 [<EntryPoint>]
 let main argv = 
   try
     System.Environment.CurrentDirectory <- System.AppDomain.CurrentDomain.BaseDirectory
+
+    test ()
 
     TransducerTest.test ()
     TransducerExpressionTest.test ()

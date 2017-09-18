@@ -373,14 +373,14 @@ module Expression =
 
     let map m t = compose t (mapping m)
 
-    let buildUp (t : Transducer<_, 'T>) (f : Expr<'S -> 'T -> 'S>) =
+    let buildUp (t : Transducer<'TIn, 'TOut>) (f : Expr<'S -> 'TOut -> 'S>) : Expr<'S -> 'TIn -> 'S> =
       let (Transducer t) = t
-      let rec loop (st : Type) (tt : Type) (acc : Expr) (e : TransducerExpression) =
+      let rec build (st : Type) (tt : Type) (acc : Expr) (e : TransducerExpression) =
         let sv = Var ("s", st)
         match e with
         | Compose (l, r) ->
-          let re = loop st tt acc r
-          let le = loop st tt re l
+          let re = build st tt acc r
+          let le = build st tt re l
           le
         | Filter (t, f) ->
           let vv = Var ("v", t)
@@ -406,7 +406,43 @@ module Expression =
                 Expr.Application(m, Expr.Var vv)
               )))
 
-      let expr = loop typeof<'S> typeof<'T> f.Raw t
 
-      expr
+      let collapseLambdaApplications expr =
+        let rec loop expr =
+          match expr with
+          | Patterns.Application (Patterns.Lambda (v, f), e) -> 
+            (fun i -> Expr.Let (v, e, i)), f
+          | Patterns.Application (Patterns.Application (_, _) as f, e) -> 
+            let l0, f0 = loop f
+            let l1, f1 = loop (Expr.Application (f0, e))
+            (fun i -> l1 (l0 i)), f1
+          | _ -> 
+            (fun i -> i), expr
+        let l, f = loop expr
+        let e    = l f
+        e
+      let rec optimize expr =
+        match expr with
+        | Patterns.Let (v, e, l) ->
+          Expr.Let (v, optimize e, optimize l)
+        | Patterns.IfThenElse (t, tb, fb) ->
+          let e = optimize tb
+          Expr.IfThenElse (optimize t, optimize tb, optimize fb)
+        | Patterns.Lambda (v, f)      -> 
+          Expr.Lambda (v, optimize f)
+        | Patterns.Application (Patterns.Let (v, e, ll), ee) ->
+          Expr.Let (v, e, optimize (Expr.Application (ll, ee)))
+        | Patterns.Application (_, _) -> 
+          let collapsed = collapseLambdaApplications expr
+          match collapsed with
+          | Patterns.Application (f, e) -> Expr.Application (optimize f, optimize e)  // collapsed failed
+          | _ -> optimize collapsed
+        | _ -> expr
+
+      let expr = build typeof<'S> typeof<'TOut> f.Raw t
+      printfn "Original:\n%A" expr
+      let expr = optimize expr
+      printfn "Optimized:\n%A" expr
+
+      expr |> Expr.Cast<_>
 
