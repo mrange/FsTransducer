@@ -51,11 +51,13 @@ type Properties() =
       let a = Transducer.skipping n |> apply vs
       e = a
 
+(*
     static member ``sorting`` (vs : int []) =
       let by  = string
       let e   = vs |> FsLinq.sortBy by  |> FsLinq.toArray
       let a   = Transducer.sortingBy by |> apply vs
       e = a
+*)
 
     static member ``composing`` (v : int) (vs : int []) =
       let r = abs v % 10 + 1
